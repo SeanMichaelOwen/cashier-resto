@@ -1,4 +1,5 @@
 import { ProductProvider } from "./context/ProductContext";
+import { TableProvider } from "./context/TableContext"
 import "./globals.css";
 
 export const metadata = {
@@ -10,9 +11,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <ProductProvider>
+        <TableProvider>
+          <ProductProvider>
             {children}
-        </ProductProvider>
+          </ProductProvider>
+        </TableProvider>
       </body>
     </html>
   );
