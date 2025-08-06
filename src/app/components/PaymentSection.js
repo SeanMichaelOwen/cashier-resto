@@ -20,7 +20,8 @@ const PaymentSection = ({
   isUpdatingBill = false,
   onCancelHoldBill = () => {},
   onNewTransaction = () => {},
-  currentUser = {}
+  currentUser = {},
+  activeBills = []
 }) => {
   // State management
   const [paymentAmount, setPaymentAmount] = useState('');
@@ -223,7 +224,6 @@ const PaymentSection = ({
           number: selectedTable.number,
           capacity: selectedTable.capacity 
         },
-        // Pastikan items selalu berupa array, bahkan jika kosong
         items: validItems,
         staff: {
           id: currentUser.id || 'unknown',
@@ -235,6 +235,16 @@ const PaymentSection = ({
         createdAt: new Date().toISOString(),
         status: 'hold'
       };
+      
+      // Tambahkan ID bill jika mode update
+      if (isUpdatingBill) {
+        const activeBill = activeBills.find(bill => bill.table?.id === selectedTable.id);
+        if (activeBill) {
+          billData.id = activeBill.id; // Pertahankan ID bill yang sama
+          billData.createdAt = activeBill.createdAt; // Pertahankan waktu pembuatan asli
+          billData.updatedAt = new Date().toISOString(); // Tambahkan waktu update
+        }
+      }
       
       console.log('Sending bill data:', billData);
       
@@ -545,7 +555,7 @@ const PaymentSection = ({
           )}
           
           {/* Tombol 3: Update Transaksi (hanya muncul saat mode hold bill) */}
-          {isHoldingBill && (
+          {/* {isHoldingBill && (
             <button
               onClick={handleOpenBill}
               disabled={cart.length === 0}
@@ -557,7 +567,7 @@ const PaymentSection = ({
               <FiEdit size={16} />
               <span className="text-xs mt-1">Update Transaksi</span>
             </button>
-          )}
+          )} */}
           
           {/* Tombol Bayar (selalu muncul) */}
           <button
@@ -585,7 +595,7 @@ const PaymentSection = ({
           )}
           
           {/* Tombol Transaksi Baru (muncul saat mode update bill) */}
-          {isUpdatingBill && (
+          {/* {isUpdatingBill && (
             <button
               onClick={onNewTransaction}
               className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 flex flex-col items-center justify-center"
@@ -594,7 +604,7 @@ const PaymentSection = ({
               <FiPlusSquare size={16} />
               <span className="text-xs mt-1">Transaksi Baru</span>
             </button>
-          )}
+          )} */}
         </div>
       </div>
       

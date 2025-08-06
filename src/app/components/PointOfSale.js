@@ -225,6 +225,12 @@ const PointOfSale = () => {
       // Update localStorage
       localStorage.setItem('activeBills', JSON.stringify(updatedBills));
       
+      // Update context state
+      // Since we don't have direct access to the context setter, we'll use a workaround
+      // by removing and re-adding the bill to trigger a state update
+      removeActiveBill(billData.table.id);
+      addActiveBill(billData);
+      
       console.log("Bill updated successfully");
       return true;
     } catch (err) {
@@ -234,30 +240,29 @@ const PointOfSale = () => {
   }
   
   // Bill management - PERBAIKAN UTAMA DI SINI
-  const openBill = async () => {
+  const openBill = async (billData) => {
     try {
       console.log("Opening bill for table:", selectedTable);
       console.log("Cart items:", cart);
       console.log("Is updating bill:", isUpdatingBill);
       
       if (!selectedTable) {
-        setError('Meja belum dipilih')
-        return
+        setError('Meja belum dipilih');
+        return false;
       }
       
       if (cart.length === 0) {
-        setError('Tidak ada item di keranjang')
-        return
+        setError('Tidak ada item di keranjang');
+        return false;
       }
       
       // Format data bill sesuai dengan yang diharapkan oleh TableContext
-      const billData = {
+      const formattedBillData = {
         table: { 
           id: selectedTable.id,
           number: selectedTable.number,
           capacity: selectedTable.capacity 
         },
-        // Pastikan items selalu berupa array yang valid
         items: cart.map(item => ({
           id: item.id || Date.now().toString(),
           name: item.name || 'Produk tanpa nama',
@@ -276,26 +281,36 @@ const PointOfSale = () => {
         total: calculateTotal(),
         createdAt: new Date().toISOString(),
         status: 'hold'
+      };
+      
+      // Tambahkan ID bill jika mode update
+      if (isUpdatingBill) {
+        const activeBill = activeBills.find(bill => bill.table?.id === selectedTable.id);
+        if (activeBill) {
+          formattedBillData.id = activeBill.id; // Pertahankan ID bill yang sama
+          formattedBillData.createdAt = activeBill.createdAt; // Pertahankan waktu pembuatan asli
+          formattedBillData.updatedAt = new Date().toISOString(); // Tambahkan waktu update
+        }
       }
       
-      console.log('Sending bill data:', billData);
+      console.log('Sending bill data:', formattedBillData);
       
       // Check if we're updating an existing bill or creating a new one
       if (isUpdatingBill) {
-        const activeBill = activeBills.find(bill => bill.table?.id === selectedTable.id)
+        const activeBill = activeBills.find(bill => bill.table?.id === selectedTable.id);
         if (activeBill) {
           console.log("Updating existing bill:", activeBill);
           
           // Update existing bill - PERBAIKAN DI SINI
           const updatedBill = {
             ...activeBill,
-            ...billData,
+            ...formattedBillData,
             // Preserve the original bill ID and creation time
             id: activeBill.id,
             createdAt: activeBill.createdAt,
             // Update the last modified time
             updatedAt: new Date().toISOString()
-          }
+          };
           
           console.log("Updated bill data:", updatedBill);
           
@@ -304,36 +319,34 @@ const PointOfSale = () => {
           
           if (result) {
             toast.success(`Bill meja ${selectedTable.number} berhasil diperbarui`);
-            resetTransaction();
-            return result;
+            return true;
           } else {
             setError('Gagal memperbarui bill');
-            return null;
+            return false;
           }
         }
       }
       
       // Create new bill
       console.log("Creating new bill");
-      const result = await addActiveBill(billData);
+      const result = await addActiveBill(formattedBillData);
       
       console.log("Open bill result:", result);
       
-      // Jika berhasil, tampilkan pesan sukses dan reset transaksi
+      // Jika berhasil, tampilkan pesan sukses
       if (result) {
         toast.success(`Bill meja ${selectedTable.number} berhasil dihold`);
-        resetTransaction();
-        return result;
+        return true;
       } else {
         // Jika addActiveBill mengembalikan false (misalnya karena items kosong)
         setError('Gagal menyimpan bill');
-        return null;
+        return false;
       }
     } catch (err) {
       console.error('Open Bill Error:', err);
       setError(err.message || 'Gagal membuka bill');
       toast.error(err.message || 'Gagal membuka bill');
-      return null;
+      return false;
     }
   }
   
@@ -368,6 +381,23 @@ const PointOfSale = () => {
     setShowCustomerModal(false)
     // You might want to save this to the active bill if there is one
   }
+  
+  // Fungsi onNewTransaction - PERBAIKAN
+  const onNewTransaction = () => {
+    if (confirm('Mulai transaksi baru untuk meja ini? Item yang ada di keranjang akan dihapus.')) {
+      resetTransaction();
+      setIsUpdatingBill(false);
+    }
+  };
+  
+  // Fungsi onCancelHoldBill - PERBAIKAN
+  const onCancelHoldBill = () => {
+    if (confirm('Batalkan transaksi yang dihold?')) {
+      removeActiveBill(selectedTable.id);
+      updateTableStatus(selectedTable.id, 'available');
+      resetTransaction();
+    }
+  };
   
   if (!isLoaded) {
     return (
@@ -802,19 +832,9 @@ const PointOfSale = () => {
               openBill={openBill}
               isHoldingBill={isHoldingBill}
               isUpdatingBill={isUpdatingBill}
-              onCancelHoldBill={() => {
-                if (confirm('Batalkan transaksi yang dihold?')) {
-                  removeActiveBill(selectedTable.id)
-                  updateTableStatus(selectedTable.id, 'available')
-                  resetTransaction()
-                }
-              }}
-              onNewTransaction={() => {
-                if (confirm('Mulai transaksi baru untuk meja ini? Item yang ada di keranjang akan dihapus.')) {
-                  resetTransaction()
-                  setIsUpdatingBill(false)
-                }
-              }}
+              onCancelHoldBill={onCancelHoldBill}
+              onNewTransaction={onNewTransaction}
+              activeBills={activeBills}
             />
           </>
         )}
