@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { 
   FiCreditCard, FiCheckCircle, FiPrinter, 
   FiRefreshCw, FiX, FiPlus, FiMinus,
-  FiDollarSign, FiSave, FiAlertCircle
+  FiDollarSign, FiSave, FiAlertCircle, FiEdit, FiPlusSquare
 } from 'react-icons/fi';
 import { toast } from 'react-toastify';
 
@@ -17,7 +17,9 @@ const PaymentSection = ({
   processPayment = async () => {},
   openBill = async () => { throw new Error('openBill function not implemented') },
   isHoldingBill = false,
+  isUpdatingBill = false,
   onCancelHoldBill = () => {},
+  onNewTransaction = () => {},
   currentUser = {}
 }) => {
   // State management
@@ -29,7 +31,7 @@ const PaymentSection = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [receiptData, setReceiptData] = useState(null);
   const [error, setError] = useState(null);
-
+  
   // Calculate total with memoization
   const total = React.useMemo(() => {
     try {
@@ -41,7 +43,7 @@ const PaymentSection = ({
       return 0;
     }
   }, [calculateTotal]);
-
+  
   // Format currency
   const formatRupiah = (amount) => {
     return new Intl.NumberFormat('id-ID', {
@@ -50,14 +52,14 @@ const PaymentSection = ({
       minimumFractionDigits: 0
     }).format(amount).replace(/\u00A0/g, ' ');
   };
-
+  
   // Parse currency input
   const parseRupiah = (formattedValue) => {
     if (!formattedValue) return 0;
     const numericString = formattedValue.toString().replace(/\D/g, '');
     return parseInt(numericString) || 0;
   };
-
+  
   // Generate payment recommendations
   const generateRecommendedPayments = useCallback(() => {
     if (total <= 0) return [];
@@ -75,12 +77,11 @@ const PaymentSection = ({
     [50000, 100000, 200000, 500000].forEach(denom => {
       if (denom >= roundedUp) recommendations.add(denom);
     });
-
     return Array.from(recommendations).sort((a, b) => a - b);
   }, [total]);
-
+  
   const recommendedAmounts = generateRecommendedPayments();
-
+  
   // Handle payment amount input
   const handlePaymentAmountChange = (e) => {
     try {
@@ -99,7 +100,7 @@ const PaymentSection = ({
       setError("Format nominal tidak valid");
     }
   };
-
+  
   // Set default payment amount
   useEffect(() => {
     if (recommendedAmounts.length > 0 && total > 0 && !paymentAmount) {
@@ -109,29 +110,25 @@ const PaymentSection = ({
       setChange(defaultAmount - total);
     }
   }, [total, recommendedAmounts]);
-
+  
   // Validate payment data
   const validatePayment = () => {
     if (!cart || cart.length === 0) {
       throw new Error("Keranjang kosong, tidak bisa melakukan pembayaran");
     }
-
     if (!selectedTable?.id) {
       throw new Error("Silakan pilih meja terlebih dahulu");
     }
-
     const amount = parseRupiah(paymentAmount);
     if (amount <= 0) {
       throw new Error("Nominal pembayaran tidak valid");
     }
-
     if (amount < total) {
       throw new Error(`Jumlah pembayaran minimal ${formatRupiah(total)}`);
     }
-
     return true;
   };
-
+  
   // Handle payment submission
   const handlePayment = () => {
     try {
@@ -143,7 +140,7 @@ const PaymentSection = ({
       toast.error(err.message);
     }
   };
-
+  
   // Confirm payment
   const confirmPayment = async () => {
     setIsProcessing(true);
@@ -173,7 +170,7 @@ const PaymentSection = ({
         date: new Date().toISOString(),
         receiptNumber: `INV-${Date.now().toString().slice(-6)}`
       };
-
+      
       await processPayment(paymentData);
       
       setReceiptData(paymentData);
@@ -188,18 +185,23 @@ const PaymentSection = ({
       setIsProcessing(false);
     }
   };
-
-  // Handle hold bill - IMPROVED VERSION
+  
+  // Handle hold/update bill - FUNGSI UTAMA UNTUK UPDATE TRANSAKSI
   const handleOpenBill = async () => {
     try {
+      console.log("Opening bill for table:", selectedTable);
+      console.log("Cart items:", cart);
+      console.log("Is updating bill:", isUpdatingBill);
+      
+      // Validasi input
       if (!cart || cart.length === 0) {
-        throw new Error("Keranjang kosong, tidak bisa hold bill");
+        throw new Error("Keranjang kosong, tidak bisa " + (isUpdatingBill ? "update transaksi" : "hold bill"));
       }
-
       if (!selectedTable?.id) {
         throw new Error("Silakan pilih meja terlebih dahulu");
       }
-
+      
+      // Pastikan semua item valid
       const validItems = cart.map(item => ({
         id: item.id || Date.now().toString(),
         name: item.name || 'Produk tanpa nama',
@@ -208,21 +210,24 @@ const PaymentSection = ({
         notes: item.notes || '',
         subtotal: (Number(item.price) || 0) * (Number(item.quantity) || 1)
       }));
-
+      
+      // Validasi item
       if (validItems.some(item => item.price <= 0 || item.quantity <= 0)) {
         throw new Error("Ada item dengan harga atau jumlah tidak valid");
       }
-
+      
+      // Siapkan data bill dengan struktur yang benar
       const billData = {
         table: { 
           id: selectedTable.id,
           number: selectedTable.number,
           capacity: selectedTable.capacity 
         },
+        // Pastikan items selalu berupa array, bahkan jika kosong
         items: validItems,
         staff: {
-          id: currentUser.id,
-          name: currentUser.name
+          id: currentUser.id || 'unknown',
+          name: currentUser.name || 'Unknown Staff'
         },
         subtotal: calculateTotal(),
         tax: calculateTotal() * 0.1,
@@ -230,19 +235,34 @@ const PaymentSection = ({
         createdAt: new Date().toISOString(),
         status: 'hold'
       };
-
+      
       console.log('Sending bill data:', billData);
-
-      await openBill(billData);
-      toast.success(`Bill meja ${selectedTable.number} berhasil dihold`);
-      resetTransaction();
+      
+      // Panggil openBill dan tunggu hasilnya
+      const result = await openBill(billData);
+      
+      console.log("Open bill result:", result);
+      
+      // Jika berhasil, tampilkan pesan sukses dan reset transaksi
+      if (result) {
+        if (isUpdatingBill) {
+          toast.success(`Bill meja ${selectedTable.number} berhasil diperbarui`);
+        } else {
+          toast.success(`Bill meja ${selectedTable.number} berhasil dihold`);
+        }
+        resetTransaction();
+      } else {
+        // Jika openBill mengembalikan false (misalnya karena items kosong)
+        toast.warning(`Bill meja ${selectedTable.number} dibuat sebagai draft`);
+        // Tidak reset transaksi agar user bisa menambahkan item
+      }
     } catch (err) {
       console.error('Hold Bill Error:', err);
       setError(err.message);
       toast.error(err.message);
     }
   };
-
+  
   // Print receipt function
   const printReceipt = () => {
     if (!receiptData) return;
@@ -335,9 +355,24 @@ const PaymentSection = ({
     `);
     popup.document.close();
   };
-
+  
   return (
     <div className="flex-1 flex flex-col bg-white rounded-lg shadow-md p-4">
+      {/* Status Badge - PERBAIKAN VISUAL STATUS */}
+      {isUpdatingBill && (
+        <div className="mb-4 p-2 bg-blue-50 text-blue-700 rounded-lg flex items-center">
+          <FiEdit className="mr-2" />
+          <span className="text-sm font-medium">Mode Update Bill Aktif</span>
+        </div>
+      )}
+      
+      {isHoldingBill && (
+        <div className="mb-4 p-2 bg-yellow-50 text-yellow-700 rounded-lg flex items-center">
+          <FiSave className="mr-2" />
+          <span className="text-sm font-medium">Mode Hold Bill Aktif</span>
+        </div>
+      )}
+      
       {/* Error Display */}
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-3 mb-4 flex items-center">
@@ -345,7 +380,7 @@ const PaymentSection = ({
           <span className="text-red-700">{error}</span>
         </div>
       )}
-
+      
       {/* Cart Items */}
       <div className="flex-1 overflow-y-auto mb-4 max-h-[40vh]">
         {cart.length > 0 ? (
@@ -392,7 +427,7 @@ const PaymentSection = ({
           </div>
         )}
       </div>
-
+      
       {/* Payment Summary */}
       <div className="border-t pt-4">
         <div className="space-y-2 mb-4">
@@ -409,7 +444,7 @@ const PaymentSection = ({
             <span className="text-blue-600">{formatRupiah(total)}</span>
           </div>
         </div>
-
+        
         {/* Recommended Payments */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">Rekomendasi Pembayaran</label>
@@ -434,7 +469,7 @@ const PaymentSection = ({
             ))}
           </div>
         </div>
-
+        
         {/* Payment Input */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Jumlah Pembayaran</label>
@@ -450,7 +485,7 @@ const PaymentSection = ({
             />
           </div>
         </div>
-
+        
         {/* Change Display */}
         {change > 0 && (
           <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
@@ -460,7 +495,7 @@ const PaymentSection = ({
             </div>
           </div>
         )}
-
+        
         {/* Payment Method */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Metode Pembayaran</label>
@@ -476,42 +511,93 @@ const PaymentSection = ({
             <option value="ewallet">E-Wallet</option>
           </select>
         </div>
-
-        {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={isHoldingBill ? onCancelHoldBill : handleOpenBill}
-            disabled={cart.length === 0 || (!isHoldingBill && !selectedTable)}
-            className={`px-4 py-2 rounded-lg flex items-center justify-center gap-2 ${
-              isHoldingBill
-                ? 'bg-red-100 text-red-800 hover:bg-red-200'
-                : 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200'
-            } ${cart.length === 0 || (!isHoldingBill && !selectedTable) ? 'opacity-50 cursor-not-allowed' : ''}`}
-            aria-label={isHoldingBill ? "Batalkan hold bill" : "Hold bill"}
-          >
-            {isHoldingBill ? (
-              <>
-                <FiX size={16} /> Batalkan Hold
-              </>
-            ) : (
-              <>
-                <FiSave size={16} /> Hold Bill
-              </>
-            )}
-          </button>
+        
+        {/* Action Buttons - 3 TOMBOL BERBEDA */}
+        <div className="grid grid-cols-3 gap-2">
+          {/* Tombol 1: Hold Bill (hanya muncul saat bukan mode update/hold) */}
+          {!isUpdatingBill && !isHoldingBill && (
+            <button
+              onClick={handleOpenBill}
+              disabled={cart.length === 0 || !selectedTable}
+              className={`px-3 py-2 bg-yellow-100 text-yellow-800 rounded-lg hover:bg-yellow-200 flex flex-col items-center justify-center ${
+                cart.length === 0 || !selectedTable ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              aria-label="Hold bill"
+            >
+              <FiSave size={16} />
+              <span className="text-xs mt-1">Hold Bill</span>
+            </button>
+          )}
+          
+          {/* Tombol 2: Update Bill (hanya muncul saat mode update bill) */}
+          {isUpdatingBill && (
+            <button
+              onClick={handleOpenBill}
+              disabled={cart.length === 0}
+              className={`px-3 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 flex flex-col items-center justify-center ${
+                cart.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              aria-label="Update bill"
+            >
+              <FiEdit size={16} />
+              <span className="text-xs mt-1">Update Bill</span>
+            </button>
+          )}
+          
+          {/* Tombol 3: Update Transaksi (hanya muncul saat mode hold bill) */}
+          {isHoldingBill && (
+            <button
+              onClick={handleOpenBill}
+              disabled={cart.length === 0}
+              className={`px-3 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200 flex flex-col items-center justify-center ${
+                cart.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+              aria-label="Update transaksi"
+            >
+              <FiEdit size={16} />
+              <span className="text-xs mt-1">Update Transaksi</span>
+            </button>
+          )}
+          
+          {/* Tombol Bayar (selalu muncul) */}
           <button
             onClick={handlePayment}
-            className={`px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 ${
+            className={`px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex flex-col items-center justify-center ${
               cart.length === 0 || !paymentAmount || parseRupiah(paymentAmount) < total ? 'opacity-50 cursor-not-allowed' : ''
             }`}
             disabled={cart.length === 0 || !paymentAmount || parseRupiah(paymentAmount) < total}
             aria-label="Proses pembayaran"
           >
-            <FiCreditCard size={16} /> Bayar
+            <FiCreditCard size={16} />
+            <span className="text-xs mt-1">Bayar</span>
           </button>
+          
+          {/* Tombol Batal/Hapus (muncul sesuai mode) */}
+          {(isUpdatingBill || isHoldingBill) && (
+            <button
+              onClick={onCancelHoldBill}
+              className="px-3 py-2 bg-red-100 text-red-800 rounded-lg hover:bg-red-200 flex flex-col items-center justify-center"
+              aria-label="Batalkan"
+            >
+              <FiX size={16} />
+              <span className="text-xs mt-1">Batalkan</span>
+            </button>
+          )}
+          
+          {/* Tombol Transaksi Baru (muncul saat mode update bill) */}
+          {isUpdatingBill && (
+            <button
+              onClick={onNewTransaction}
+              className="px-3 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 flex flex-col items-center justify-center"
+              aria-label="Transaksi baru"
+            >
+              <FiPlusSquare size={16} />
+              <span className="text-xs mt-1">Transaksi Baru</span>
+            </button>
+          )}
         </div>
       </div>
-
+      
       {/* Confirmation Modal */}
       {showConfirm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -566,7 +652,7 @@ const PaymentSection = ({
           </div>
         </div>
       )}
-
+      
       {/* Success Modal */}
       {showSuccess && receiptData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">

@@ -4,12 +4,13 @@ import {
   FiShoppingCart, FiGrid, FiX, FiPlus, FiMinus,
   FiBookOpen, FiUser, FiClock, FiCalendar,
   FiDollarSign, FiCreditCard, FiPrinter, FiCoffee,
-  FiSearch, FiArrowLeft, FiArrowRight, FiAlertCircle
+  FiSearch, FiArrowLeft, FiArrowRight, FiAlertCircle, FiSave, FiEdit
 } from 'react-icons/fi'
 import { useProducts } from '../context/ProductContext'
 import { useTables } from '../context/TableContext'
 import { format, parseISO, isBefore } from 'date-fns'
 import PaymentSection from './PaymentSection'
+import { toast } from 'react-toastify'
 
 const PointOfSale = () => {
   // Context hooks with safe defaults
@@ -28,7 +29,7 @@ const PointOfSale = () => {
     removeActiveBill,
     updateTableStatus
   } = useTables()
-
+  
   // State management
   const [cart, setCart] = useState([])
   const [selectedCategory, setSelectedCategory] = useState('Semua')
@@ -42,7 +43,8 @@ const PointOfSale = () => {
   const [showCustomerModal, setShowCustomerModal] = useState(false)
   const [error, setError] = useState(null)
   const [isProcessing, setIsProcessing] = useState(false)
-
+  const [isUpdatingBill, setIsUpdatingBill] = useState(false)
+  
   // Generate stable categories list
   const displayCategories = useMemo(() => {
     const baseCategories = ['Semua']
@@ -63,7 +65,7 @@ const PointOfSale = () => {
     
     return [...baseCategories, ...categoriesFromProducts]
   }, [products, productCategories])
-
+  
   // Memoized filtered products
   const filteredProducts = useMemo(() => {
     if (!Array.isArray(products)) return []
@@ -81,26 +83,24 @@ const PointOfSale = () => {
       return matchesSearch && matchesCategory
     })
   }, [products, searchQuery, selectedCategory])
-
+  
   // Pagination
   const paginatedProducts = useMemo(() => {
     const indexOfLastItem = currentPage * itemsPerPage
     const indexOfFirstItem = indexOfLastItem - itemsPerPage
     return filteredProducts.slice(indexOfFirstItem, indexOfLastItem)
   }, [filteredProducts, currentPage, itemsPerPage])
-
+  
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage)
-
+  
   // Cart operations with stock validation
   const addToCart = (product) => {
     if (!selectedTable) {
       setError('Silakan pilih meja terlebih dahulu')
       return
     }
-
     const existingItem = cart.find(item => item.id === product.id)
     const availableStock = product.stock || 0
-
     if (existingItem) {
       if (existingItem.quantity >= availableStock) {
         setError(`Stok ${product.name} tidak mencukupi!`)
@@ -120,11 +120,11 @@ const PointOfSale = () => {
     }
     setError(null)
   }
-
+  
   const removeFromCart = (id) => {
     setCart(cart.filter(item => item.id !== id))
   }
-
+  
   const updateQuantity = (id, quantity) => {
     if (quantity < 1) {
       removeFromCart(id)
@@ -144,27 +144,31 @@ const PointOfSale = () => {
     ))
     setError(null)
   }
-
+  
   // Calculate totals
   const calculateSubtotal = () => cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
   const calculateTax = () => calculateSubtotal() * 0.1
   const calculateTotal = () => calculateSubtotal() + calculateTax()
-
+  
   // Reset transaction
   const resetTransaction = () => {
     setCart([])
     setCustomerName('')
     setPaymentMethod('cash')
+    setIsUpdatingBill(false)
     setError(null)
   }
-
+  
   // Table selection with booking validation
   const handleTableSelect = (table) => {
     if (!table) {
       setError('Meja tidak valid')
       return
     }
-
+    
+    // Check if table has active bill
+    const activeBill = activeBills.find(bill => bill.table?.id === table.id)
+    
     if (table.status === 'booked') {
       const now = new Date()
       const bookingTime = parseISO(table.bookingInfo?.bookingTime)
@@ -179,37 +183,160 @@ const PointOfSale = () => {
     
     setSelectedTable(table)
     setShowTableSelection(false)
-    updateTableStatus(table.id, 'occupied')
-    setError(null)
-  }
-
-  // Bill management
-  const openBill = () => {
-    if (!selectedTable) {
-      setError('Meja belum dipilih')
-      return
-    }
-
-    if (cart.length === 0) {
-      setError('Tidak ada item di keranjang')
-      return
-    }
-
-    const bill = {
-      id: Date.now(),
-      table: selectedTable,
-      cart: [...cart],
-      createdAt: new Date().toISOString(),
-      total: calculateTotal(),
-      customerName: customerName || `Pelanggan Meja ${selectedTable.number}`,
-      paymentMethod
+    
+    // If table has active bill, load it into cart
+    if (activeBill) {
+      setCart(activeBill.items.map(item => ({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        quantity: item.quantity,
+        notes: item.notes || ''
+      })))
+      setCustomerName(activeBill.customerName || '')
+      setIsUpdatingBill(true)
+    } else {
+      updateTableStatus(table.id, 'occupied')
     }
     
-    addActiveBill(bill)
-    resetTransaction()
     setError(null)
   }
-
+  
+  // Update active bill - FUNGSI BARU UNTUK UPDATE BILL
+  const updateActiveBill = async (billData) => {
+    try {
+      console.log("Updating active bill:", billData);
+      
+      if (!billData || !billData.id) {
+        throw new Error("Data bill tidak valid untuk update");
+      }
+      
+      // Find the bill index in activeBills
+      const billIndex = activeBills.findIndex(bill => bill.id === billData.id);
+      
+      if (billIndex === -1) {
+        throw new Error("Bill tidak ditemukan dalam daftar bill aktif");
+      }
+      
+      // Update the bill in the array
+      const updatedBills = [...activeBills];
+      updatedBills[billIndex] = billData;
+      
+      // Update localStorage
+      localStorage.setItem('activeBills', JSON.stringify(updatedBills));
+      
+      console.log("Bill updated successfully");
+      return true;
+    } catch (err) {
+      console.error("Update active bill error:", err);
+      throw err;
+    }
+  }
+  
+  // Bill management - PERBAIKAN UTAMA DI SINI
+  const openBill = async () => {
+    try {
+      console.log("Opening bill for table:", selectedTable);
+      console.log("Cart items:", cart);
+      console.log("Is updating bill:", isUpdatingBill);
+      
+      if (!selectedTable) {
+        setError('Meja belum dipilih')
+        return
+      }
+      
+      if (cart.length === 0) {
+        setError('Tidak ada item di keranjang')
+        return
+      }
+      
+      // Format data bill sesuai dengan yang diharapkan oleh TableContext
+      const billData = {
+        table: { 
+          id: selectedTable.id,
+          number: selectedTable.number,
+          capacity: selectedTable.capacity 
+        },
+        // Pastikan items selalu berupa array yang valid
+        items: cart.map(item => ({
+          id: item.id || Date.now().toString(),
+          name: item.name || 'Produk tanpa nama',
+          price: Number(item.price) || 0,
+          quantity: Number(item.quantity) || 1,
+          notes: item.notes || '',
+          subtotal: (Number(item.price) || 0) * (Number(item.quantity) || 1)
+        })),
+        staff: {
+          id: 'current-user', // Sesuaikan dengan data user yang sedang login
+          name: 'Staff' // Sesuaikan dengan nama user yang sedang login
+        },
+        customerName: customerName || `Pelanggan Meja ${selectedTable.number}`,
+        subtotal: calculateSubtotal(),
+        tax: calculateTax(),
+        total: calculateTotal(),
+        createdAt: new Date().toISOString(),
+        status: 'hold'
+      }
+      
+      console.log('Sending bill data:', billData);
+      
+      // Check if we're updating an existing bill or creating a new one
+      if (isUpdatingBill) {
+        const activeBill = activeBills.find(bill => bill.table?.id === selectedTable.id)
+        if (activeBill) {
+          console.log("Updating existing bill:", activeBill);
+          
+          // Update existing bill - PERBAIKAN DI SINI
+          const updatedBill = {
+            ...activeBill,
+            ...billData,
+            // Preserve the original bill ID and creation time
+            id: activeBill.id,
+            createdAt: activeBill.createdAt,
+            // Update the last modified time
+            updatedAt: new Date().toISOString()
+          }
+          
+          console.log("Updated bill data:", updatedBill);
+          
+          // Use our custom updateActiveBill function
+          const result = await updateActiveBill(updatedBill);
+          
+          if (result) {
+            toast.success(`Bill meja ${selectedTable.number} berhasil diperbarui`);
+            resetTransaction();
+            return result;
+          } else {
+            setError('Gagal memperbarui bill');
+            return null;
+          }
+        }
+      }
+      
+      // Create new bill
+      console.log("Creating new bill");
+      const result = await addActiveBill(billData);
+      
+      console.log("Open bill result:", result);
+      
+      // Jika berhasil, tampilkan pesan sukses dan reset transaksi
+      if (result) {
+        toast.success(`Bill meja ${selectedTable.number} berhasil dihold`);
+        resetTransaction();
+        return result;
+      } else {
+        // Jika addActiveBill mengembalikan false (misalnya karena items kosong)
+        setError('Gagal menyimpan bill');
+        return null;
+      }
+    } catch (err) {
+      console.error('Open Bill Error:', err);
+      setError(err.message || 'Gagal membuka bill');
+      toast.error(err.message || 'Gagal membuka bill');
+      return null;
+    }
+  }
+  
   // Process payment
   const processPayment = async (paymentData) => {
     setIsProcessing(true)
@@ -231,11 +358,17 @@ const PointOfSale = () => {
       setIsProcessing(false)
     }
   }
-
+  
   // Check if current table has active bill
   const isHoldingBill = selectedTable && 
     activeBills.some(bill => bill.table?.id === selectedTable.id)
-
+  
+  // Handle customer modal
+  const handleSaveCustomer = () => {
+    setShowCustomerModal(false)
+    // You might want to save this to the active bill if there is one
+  }
+  
   if (!isLoaded) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -243,7 +376,7 @@ const PointOfSale = () => {
       </div>
     )
   }
-
+  
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
       {/* Error Display */}
@@ -259,7 +392,50 @@ const PointOfSale = () => {
           </button>
         </div>
       )}
-
+      
+      {/* Customer Modal */}
+      {showCustomerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-bold">Informasi Pelanggan</h3>
+              <button 
+                onClick={() => setShowCustomerModal(false)} 
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <FiX size={24} />
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Nama Pelanggan</label>
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Masukkan nama pelanggan"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowCustomerModal(false)}
+                  className="flex-1 py-2 bg-gray-200 rounded-lg hover:bg-gray-300"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleSaveCustomer}
+                  className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Simpan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Table Selection Modal */}
       {showTableSelection && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -276,38 +452,48 @@ const PointOfSale = () => {
             <div className="p-4 overflow-y-auto">
               {tables.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {tables.map(table => (
-                    <div
-                      key={table.id}
-                      onClick={() => handleTableSelect(table)}
-                      className={`border rounded-lg p-4 cursor-pointer transition-all ${
-                        table.status === 'available' 
-                          ? 'hover:shadow-md hover:border-blue-300 bg-white' 
-                          : 'bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-bold text-lg">Meja {table.number}</h3>
-                          <p className="text-sm text-gray-600">{table.capacity} Orang</p>
+                  {tables.map(table => {
+                    const activeBill = activeBills.find(bill => bill.table?.id === table.id)
+                    return (
+                      <div
+                        key={table.id}
+                        onClick={() => handleTableSelect(table)}
+                        className={`border rounded-lg p-4 cursor-pointer transition-all ${
+                          table.status === 'available' 
+                            ? 'hover:shadow-md hover:border-blue-300 bg-white' 
+                            : 'bg-gray-50'
+                        } ${activeBill ? 'border-yellow-300 bg-yellow-50' : ''}`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h3 className="font-bold text-lg">Meja {table.number}</h3>
+                            <p className="text-sm text-gray-600">{table.capacity} Orang</p>
+                            {activeBill && (
+                              <p className="text-xs text-yellow-700 mt-1">
+                                {activeBill.customerName || 'Pelanggan'}
+                              </p>
+                            )}
+                          </div>
+                          <span className={`px-2 py-1 text-xs rounded-full ${
+                            activeBill ? 'bg-yellow-100 text-yellow-800' :
+                            table.status === 'available' ? 'bg-green-100 text-green-800' :
+                            table.status === 'occupied' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {activeBill ? 'Active Bill' : 
+                             table.status === 'available' ? 'Tersedia' : 
+                             table.status === 'occupied' ? 'Terisi' : 'Dipesan'}
+                          </span>
                         </div>
-                        <span className={`px-2 py-1 text-xs rounded-full ${
-                          table.status === 'available' ? 'bg-green-100 text-green-800' :
-                          table.status === 'occupied' ? 'bg-red-100 text-red-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {table.status === 'available' ? 'Tersedia' : 
-                          table.status === 'occupied' ? 'Terisi' : 'Dipesan'}
-                        </span>
+                        {table.status === 'booked' && table.bookingInfo && (
+                          <div className="mt-2 text-xs text-gray-500">
+                            <p>Dipesan oleh: {table.bookingInfo.customerName}</p>
+                            <p>Pada: {format(parseISO(table.bookingInfo.bookingTime), 'dd/MM/yyyy HH:mm')}</p>
+                          </div>
+                        )}
                       </div>
-                      {table.status === 'booked' && table.bookingInfo && (
-                        <div className="mt-2 text-xs text-gray-500">
-                          <p>Dipesan oleh: {table.bookingInfo.customerName}</p>
-                          <p>Pada: {format(parseISO(table.bookingInfo.bookingTime), 'dd/MM/yyyy HH:mm')}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
@@ -319,8 +505,118 @@ const PointOfSale = () => {
           </div>
         </div>
       )}
-
-      {/* Product Menu (Left Side) */}
+      
+      {/* Active Bills Modal */}
+      {showActiveBills && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl max-h-[80vh] overflow-hidden">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-bold">Transaksi Aktif</h3>
+              <button 
+                onClick={() => setShowActiveBills(false)} 
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <FiX size={24} />
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              {activeBills.length > 0 ? (
+                <div className="space-y-4">
+                  {activeBills.map(bill => (
+                    <div key={bill.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h4 className="font-bold text-lg">Meja {bill.table?.number}</h4>
+                          <p className="text-sm text-gray-600">
+                            {format(parseISO(bill.createdAt), 'dd/MM/yyyy HH:mm')}
+                          </p>
+                          {bill.customerName && (
+                            <p className="text-sm text-blue-600">{bill.customerName}</p>
+                          )}
+                        </div>
+                        <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs rounded-full">
+                          Hold
+                        </span>
+                      </div>
+                      
+                      <div className="mb-3">
+                        <h5 className="font-medium mb-2">Items:</h5>
+                        <div className="space-y-1">
+                          {bill.items?.map((item, index) => (
+                            <div key={index} className="flex justify-between text-sm">
+                              <span>{item.quantity}x {item.name}</span>
+                              <span>
+                                {new Intl.NumberFormat('id-ID', {
+                                  style: 'currency',
+                                  currency: 'IDR',
+                                  minimumFractionDigits: 0
+                                }).format(item.price * item.quantity)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      <div className="border-t pt-3 flex justify-between items-center">
+                        <div>
+                          <p className="font-medium">Total: 
+                            <span className="text-blue-600 ml-1">
+                              {new Intl.NumberFormat('id-ID', {
+                                style: 'currency',
+                                currency: 'IDR',
+                                minimumFractionDigits: 0
+                              }).format(bill.total)}
+                            </span>
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedTable(bill.table);
+                              setShowActiveBills(false);
+                              // Isi cart dengan items dari bill
+                              setCart(bill.items.map(item => ({
+                                id: item.id,
+                                name: item.name,
+                                price: item.price,
+                                quantity: item.quantity,
+                                notes: item.notes || ''
+                              })));
+                              setCustomerName(bill.customerName || '');
+                              setIsUpdatingBill(true);
+                            }}
+                            className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 flex items-center gap-1"
+                          >
+                            <FiEdit size={14} /> Update
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Batalkan transaksi untuk meja ${bill.table?.number}?`)) {
+                                removeActiveBill(bill.table.id);
+                                updateTableStatus(bill.table.id, 'available');
+                              }
+                            }}
+                            className="px-3 py-1 bg-red-100 text-red-700 text-sm rounded-lg hover:bg-red-200"
+                          >
+                            Batalkan
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <FiBookOpen className="mx-auto text-3xl mb-2" />
+                  <p>Tidak ada transaksi aktif</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Product Menu (Left Side) - PERBAIKAN RESPONSIVE DI SINI */}
       <div className="lg:col-span-2 bg-white rounded-lg shadow p-4 flex flex-col">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
           <select
@@ -356,46 +652,48 @@ const PointOfSale = () => {
           </div>
         </div>
         
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
           {paginatedProducts.length > 0 ? (
-            paginatedProducts.map(product => (
-              <div 
-                key={product.id}
-                onClick={() => addToCart(product)}
-                className={`border rounded-lg p-3 hover:shadow-md cursor-pointer flex flex-col items-center transition-all ${
-                  product.stock < 1 ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-300'
-                }`}
-              >
-                <div className="w-16 h-16 bg-gray-100 rounded-full mb-2 flex items-center justify-center">
-                  {product.image ? (
-                    <img 
-                      src={product.image} 
-                      alt={product.name} 
-                      className="w-full h-full object-cover rounded-full"
-                    />
-                  ) : (
-                    <FiCoffee className="text-gray-500 text-xl" />
-                  )}
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {paginatedProducts.map(product => (
+                <div 
+                  key={product.id}
+                  onClick={() => addToCart(product)}
+                  className={`border rounded-lg p-3 hover:shadow-md cursor-pointer flex flex-col items-center transition-all h-full ${
+                    product.stock < 1 ? 'opacity-50 cursor-not-allowed' : 'hover:border-blue-300'
+                  }`}
+                >
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gray-100 rounded-full mb-2 flex items-center justify-center flex-shrink-0">
+                    {product.image ? (
+                      <img 
+                        src={product.image} 
+                        alt={product.name} 
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                    ) : (
+                      <FiCoffee className="text-gray-500 text-xl sm:text-2xl" />
+                    )}
+                  </div>
+                  <h4 className="font-medium text-center text-sm sm:text-base truncate w-full">{product.name}</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {new Intl.NumberFormat('id-ID', {
+                      style: 'currency',
+                      currency: 'IDR',
+                      minimumFractionDigits: 0
+                    }).format(product.price)}
+                  </p>
+                  <p className={`text-xs mt-1 ${
+                    product.stock < 1 ? 'text-red-500' : 'text-gray-500'
+                  }`}>
+                    {product.stock < 1 ? 'Stok habis' : `Stok: ${product.stock}`}
+                  </p>
                 </div>
-                <h4 className="font-medium text-center">{product.name}</h4>
-                <p className="text-sm text-gray-600 mt-1">
-                  {new Intl.NumberFormat('id-ID', {
-                    style: 'currency',
-                    currency: 'IDR',
-                    minimumFractionDigits: 0
-                  }).format(product.price)}
-                </p>
-                <p className={`text-xs mt-1 ${
-                  product.stock < 1 ? 'text-red-500' : 'text-gray-500'
-                }`}>
-                  {product.stock < 1 ? 'Stok habis' : `Stok: ${product.stock}`}
-                </p>
-              </div>
-            ))
+              ))}
+            </div>
           ) : (
-            <div className="col-span-full text-center py-8 text-gray-500">
-              <FiSearch className="mx-auto text-3xl mb-2" />
-              <p>Tidak ada produk yang ditemukan</p>
+            <div className="flex flex-col items-center justify-center h-full py-8 text-gray-500">
+              <FiSearch className="text-3xl mb-2" />
+              <p className="text-center">Tidak ada produk yang ditemukan</p>
               {filteredProducts.length > 0 && (
                 <button
                   onClick={() => {
@@ -410,7 +708,7 @@ const PointOfSale = () => {
             </div>
           )}
         </div>
-
+        
         {/* Pagination */}
         {filteredProducts.length > itemsPerPage && (
           <div className="flex justify-center mt-4">
@@ -469,6 +767,9 @@ const PointOfSale = () => {
               <div>
                 <h3 className="font-medium">Meja {selectedTable.number}</h3>
                 <p className="text-sm text-gray-600">{selectedTable.capacity} orang</p>
+                {customerName && (
+                  <p className="text-sm text-blue-600">{customerName}</p>
+                )}
               </div>
               <div className="flex gap-2">
                 <button 
@@ -500,9 +801,18 @@ const PointOfSale = () => {
               processPayment={processPayment}
               openBill={openBill}
               isHoldingBill={isHoldingBill}
+              isUpdatingBill={isUpdatingBill}
               onCancelHoldBill={() => {
                 if (confirm('Batalkan transaksi yang dihold?')) {
                   removeActiveBill(selectedTable.id)
+                  updateTableStatus(selectedTable.id, 'available')
+                  resetTransaction()
+                }
+              }}
+              onNewTransaction={() => {
+                if (confirm('Mulai transaksi baru untuk meja ini? Item yang ada di keranjang akan dihapus.')) {
+                  resetTransaction()
+                  setIsUpdatingBill(false)
                 }
               }}
             />

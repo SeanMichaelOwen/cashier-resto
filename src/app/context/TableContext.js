@@ -26,7 +26,6 @@ export function TableProvider({ children }) {
         const savedTables = JSON.parse(localStorage.getItem('tables')) || initialTables;
         const savedBills = JSON.parse(localStorage.getItem('activeBills')) || [];
         const savedSelected = JSON.parse(localStorage.getItem('selectedTable'));
-
         setTables(savedTables);
         setActiveBills(savedBills);
         if (savedSelected) setSelectedTable(savedSelected);
@@ -38,7 +37,6 @@ export function TableProvider({ children }) {
         setIsLoading(false);
       }
     };
-
     loadData();
   }, []);
 
@@ -71,14 +69,12 @@ export function TableProvider({ children }) {
       if (tables.some(t => t.number === newTable.number)) {
         throw new Error(`Meja ${newTable.number} sudah ada`);
       }
-
       const tableToAdd = {
         ...newTable,
         id: Date.now(),
         status: 'available',
         bookingInfo: null
       };
-
       setTables(prev => [...prev, tableToAdd]);
       return tableToAdd;
     } catch (err) {
@@ -143,28 +139,53 @@ export function TableProvider({ children }) {
 
   // Validate bill data - IMPROVED
   const validateBill = (bill) => {
-    if (!bill?.table?.id) throw new Error("Meja tidak valid");
+    console.log("Validating bill:", bill); // Tambahkan logging untuk debugging
     
-    if (!Array.isArray(bill.items)) {
-      throw new Error("Format items tidak valid");
+    if (!bill?.table?.id) {
+      console.error("Invalid table in bill:", bill);
+      throw new Error("Meja tidak valid");
     }
     
+    // Perbaiki pengecekan untuk items dengan pesan error lebih jelas
+    if (!bill.items) {
+      console.error("Bill items is undefined or null:", bill);
+      throw new Error("Items tidak ditemukan dalam bill");
+    }
+    
+    if (!Array.isArray(bill.items)) {
+      console.error("Bill items is not an array:", bill.items, typeof bill.items);
+      throw new Error("Format items tidak valid, harap berikan array");
+    }
+    
+    // Jika items kosong, kita bisa mengembalikan false alih-alih melempar error
+    // Ini akan memungkinkan komponen pemanggil untuk menangani kasus ini
     if (bill.items.length === 0) {
-      throw new Error("Item transaksi kosong");
+      console.warn("Bill items is empty");
+      return false;
     }
     
     bill.items.forEach((item, index) => {
-      if (!item) throw new Error(`Item ${index + 1}: Data tidak valid`);
+      if (!item) {
+        console.error(`Item ${index + 1} is null or undefined`);
+        throw new Error(`Item ${index + 1}: Data tidak valid`);
+      }
       
       if (!item.name && !item.id) {
+        console.error(`Item ${index + 1} missing name and ID:`, item);
         throw new Error(`Item ${index + 1}: Nama atau ID tidak valid`);
       }
       
       const price = Number(item.price);
-      if (isNaN(price)) throw new Error(`Item ${index + 1}: Harga tidak valid`);
+      if (isNaN(price)) {
+        console.error(`Item ${index + 1} has invalid price:`, item.price);
+        throw new Error(`Item ${index + 1}: Harga tidak valid`);
+      }
       
       const quantity = Number(item.quantity);
-      if (isNaN(quantity)) throw new Error(`Item ${index + 1}: Jumlah tidak valid`);
+      if (isNaN(quantity)) {
+        console.error(`Item ${index + 1} has invalid quantity:`, item.quantity);
+        throw new Error(`Item ${index + 1}: Jumlah tidak valid`);
+      }
     });
     
     return true;
@@ -173,9 +194,33 @@ export function TableProvider({ children }) {
   // Add active bill (Hold Bill) - IMPROVED
   const addActiveBill = useCallback((bill) => {
     try {
-      validateBill(bill);
+      console.log("Adding active bill:", bill); // Tambahkan logging untuk debugging
       
-      const subtotal = bill.items.reduce((sum, item) => {
+      // Pastikan bill memiliki struktur yang benar sebelum validasi
+      const normalizedBill = {
+        ...bill,
+        items: Array.isArray(bill.items) ? bill.items : []
+      };
+      
+      // Validasi bill, tetapi tangani kasus ketika items kosong
+      const isValid = validateBill(normalizedBill);
+      
+      // Jika items kosong, kembalikan bill tanpa menyimpannya
+      if (!isValid) {
+        console.warn("Cannot add bill with empty items");
+        return {
+          ...normalizedBill,
+          id: Date.now(),
+          createdAt: new Date().toISOString(),
+          subtotal: 0,
+          tax: 0,
+          total: 0,
+          paymentStatus: 'draft',
+          items: []
+        };
+      }
+      
+      const subtotal = normalizedBill.items.reduce((sum, item) => {
         const price = Number(item.price) || 0;
         const quantity = Number(item.quantity) || 1;
         return sum + (price * quantity);
@@ -183,16 +228,15 @@ export function TableProvider({ children }) {
       
       const tax = subtotal * 0.1;
       const total = subtotal + tax;
-
       const newBill = {
-        ...bill,
+        ...normalizedBill,
         id: Date.now(),
         createdAt: new Date().toISOString(),
         subtotal,
         tax,
         total,
         paymentStatus: 'hold',
-        items: bill.items.map(item => ({
+        items: normalizedBill.items.map(item => ({
           id: item.id || Date.now().toString(),
           name: item.name || 'Produk tanpa nama',
           price: Number(item.price) || 0,
@@ -201,13 +245,13 @@ export function TableProvider({ children }) {
           subtotal: (Number(item.price) || 0) * (Number(item.quantity) || 1)
         }))
       };
-
+      
       setActiveBills(prev => [
-        ...prev.filter(b => b.table.id !== bill.table.id),
+        ...prev.filter(b => b.table.id !== normalizedBill.table.id),
         newBill
       ]);
-
-      updateTableStatus(bill.table.id, 'occupied');
+      
+      updateTableStatus(normalizedBill.table.id, 'occupied');
       return newBill;
     } catch (err) {
       console.error("Add active bill error:", err);
@@ -235,7 +279,6 @@ export function TableProvider({ children }) {
       if (!booking.tableId || !booking.customerName || !booking.bookingTime) {
         throw new Error("Data booking tidak lengkap");
       }
-
       const bookingInfo = {
         customerName: booking.customerName.trim(),
         phone: booking.phone || '',
@@ -245,7 +288,6 @@ export function TableProvider({ children }) {
         notes: booking.notes || '',
         bookingDate: new Date().toISOString()
       };
-
       updateTableStatus(booking.tableId, 'booked', bookingInfo);
       return true;
     } catch (err) {
@@ -278,7 +320,6 @@ export function TableProvider({ children }) {
       if (!paymentData?.amount || !paymentData?.method) {
         throw new Error("Data pembayaran tidak lengkap");
       }
-
       setActiveBills(prev =>
         prev.map(bill =>
           bill.id === billId
@@ -293,12 +334,10 @@ export function TableProvider({ children }) {
             : bill
         )
       );
-
       const bill = activeBills.find(b => b.id === billId);
       if (bill) {
         updateTableStatus(bill.table.id, 'available');
       }
-
       return true;
     } catch (err) {
       console.error("Payment error:", err);
