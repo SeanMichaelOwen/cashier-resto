@@ -5,7 +5,7 @@ import {
   FiX, FiBarChart2, FiTrendingUp, FiTruck, 
   FiSmartphone, FiChevronDown, FiChevronRight,
   FiGrid, FiHome, FiSettings, FiLogOut, FiCreditCard,
-  FiUser
+  FiUser, FiStar, FiBox
 } from 'react-icons/fi';
 
 const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
@@ -14,14 +14,14 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
     integrations: false,
     management: false
   });
-
+  
   const toggleMenu = (menu) => {
     setExpandedMenus(prev => ({
       ...prev,
       [menu]: !prev[menu]
     }));
   };
-
+  
   const mainMenuItems = [
     { id: 'dashboard', icon: <FiHome />, label: 'Dashboard' },
     { id: 'pos', icon: <FiShoppingCart />, label: 'Point of Sale' },
@@ -30,29 +30,35 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
     { id: 'tables', icon: <FiGrid />, label: 'Meja' },
     { id: 'transactions', icon: <FiCreditCard />, label: 'Transaksi' }
   ];
-
+  
   const analysisSubItems = [
     { id: 'analysis-sales', icon: <FiTrendingUp />, label: 'Penjualan' },
-    { id: 'analysis-inventory', icon: <FiPackage />, label: 'Persediaan' },
-    { id: 'analysis-profit', icon: <FiDollarSign />, label: 'Laba Rugi' },
-    { id: 'analysis-trending', icon: <FiTrendingUp />, label: 'Trending' }
+    { id: 'inventory-analysis', icon: <FiBox />, label: 'Persediaan' },
+    { id: 'analysis', icon: <FiDollarSign />, label: 'Laba Rugi' },
+    { id: 'analysis-trending', icon: <FiStar />, label: 'Produk Tren' }
   ];
-
+  
   const integrationSubItems = [
-    { id: 'integration-grab', icon: <FiSmartphone />, label: 'Grab' },
-    { id: 'integration-gojek', icon: <FiSmartphone />, label: 'Gojek' },
-    { id: 'integration-shopee', icon: <FiSmartphone />, label: 'ShopeeFood' }
+    { id: 'integration-gofood', icon: <FiSmartphone />, label: 'Go-Food' },
+    { id: 'integration-grabfood', icon: <FiSmartphone />, label: 'GrabFood' },
+    { id: 'integration-shopeefood', icon: <FiSmartphone />, label: 'ShopeeFood' }
   ];
-
+  
   const managementSubItems = [
     { id: 'management-users', icon: <FiUsers />, label: 'Pengguna' },
     { id: 'management-roles', icon: <FiSettings />, label: 'Peran' },
     { id: 'management-settings', icon: <FiSettings />, label: 'Pengaturan' }
   ];
-
+  
   const isActive = (tabId) => activeTab === tabId;
   const isSubmenuActive = (prefix) => activeTab.startsWith(prefix);
-
+  
+  // Fungsi navigasi tanpa useRouter
+  const handleNavigation = (item) => {
+    // Untuk semua item, kita hanya perlu mengubah activeTab
+    setActiveTab(item.id);
+  };
+  
   return (
     <div className={`fixed inset-y-0 left-0 z-30 bg-indigo-800 text-white w-64 transition-all duration-300 ease-in-out shadow-xl ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
       {/* Header */}
@@ -89,7 +95,7 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
               <span className="font-medium">{item.label}</span>
             </button>
           ))}
-
+          
           {/* Analysis Dropdown */}
           <div className="mt-2">
             <button
@@ -110,13 +116,12 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
                 <FiChevronRight className="text-sm" />
               )}
             </button>
-
             {expandedMenus.analysis && (
               <div className="ml-6 mt-1 space-y-1">
                 {analysisSubItems.map(item => (
                   <button
                     key={item.id}
-                    onClick={() => setActiveTab(item.id)}
+                    onClick={() => handleNavigation(item)}
                     className={`flex items-center w-full p-2 pl-4 rounded-lg text-sm transition-colors ${
                       isActive(item.id)
                         ? 'bg-indigo-600/80 text-white'
@@ -130,7 +135,7 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
               </div>
             )}
           </div>
-
+          
           {/* Integrations Dropdown */}
           <div className="mt-1">
             <button
@@ -151,7 +156,6 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
                 <FiChevronRight className="text-sm" />
               )}
             </button>
-
             {expandedMenus.integrations && (
               <div className="ml-6 mt-1 space-y-1">
                 {integrationSubItems.map(item => (
@@ -171,9 +175,9 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
               </div>
             )}
           </div>
-
+          
           {/* Management Dropdown */}
-          <div className="mt-1">
+          {/* <div className="mt-1">
             <button
               onClick={() => toggleMenu('management')}
               className={`flex items-center justify-between w-full p-3 rounded-lg transition-colors ${
@@ -192,7 +196,6 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
                 <FiChevronRight className="text-sm" />
               )}
             </button>
-
             {expandedMenus.management && (
               <div className="ml-6 mt-1 space-y-1">
                 {managementSubItems.map(item => (
@@ -211,10 +214,10 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, activeTab, setActiveTab }) => {
                 ))}
               </div>
             )}
-          </div>
+          </div> */}
         </nav>
       </div>
-
+      
       {/* Footer */}
       <div className="absolute bottom-0 w-full p-4 border-t border-indigo-700 bg-indigo-800">
         <div className="flex items-center space-x-3 p-2 rounded-lg hover:bg-indigo-700 transition-colors cursor-pointer">

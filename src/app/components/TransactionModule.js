@@ -1,7 +1,7 @@
 'use client';
 import React, { useState } from 'react';
 import PaymentSection from '../components/PaymentSection';
-import TableManagement from '..c/omponents/TableManagement';
+import TableManagement from '../components/TableManagement';
 
 const TransactionModule = () => {
   const [currentTable, setCurrentTable] = useState(null);
